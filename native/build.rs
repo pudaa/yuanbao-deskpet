@@ -277,6 +277,8 @@ fn write_sounds_map(out_dir: &std::path::Path, sounds: &[(String, Vec<u8>)]) {
 }
 
 fn main() {
+    // 版本号来自 Cargo.toml，改版本必须重新嵌入 VERSIONINFO
+    println!("cargo:rerun-if-changed=Cargo.toml");
     println!("cargo:rerun-if-changed=../assets/icon.ico");
     println!("cargo:rerun-if-changed=../assets/sounds.json");
     println!("cargo:rerun-if-changed=../web/frames");

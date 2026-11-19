@@ -40,6 +40,10 @@ pub struct Pack {
 #[derive(Debug, Deserialize, Clone)]
 #[serde(rename_all = "camelCase")]
 pub struct Behavior {
+    /// 组内唯一、稳定：用户配置用 "组id.行为id" 引用它，改了等于丢用户设置
+    pub id: String,
+    /// 菜单里显示的名字
+    pub label: String,
     pub on: Trigger,
     /// 对应 web/sounds/<sound>.wav 的文件名（不含扩展名）
     pub sound: String,
@@ -155,6 +159,9 @@ struct Engine {
     pressed_at: Option<Instant>,
     pending: Vec<Pending>,
     active: Vec<Active>,
+    /// 用户单独关掉的行为键："{pack}.{behavior}"
+    disabled: std::collections::HashSet<String>,
+    muted: bool,
 }
 
 impl Engine {
@@ -173,7 +180,14 @@ impl Engine {
             pressed_at: None,
             pending: Vec::new(),
             active: Vec::new(),
+            disabled: std::collections::HashSet::new(),
+            muted: false,
         }
+    }
+
+    /// 该行为此刻是否被静音（总静音或单条禁用）
+    fn blocked(&self, pack: &Pack, b: &Behavior) -> bool {
+        self.muted || self.disabled.contains(&format!("{}.{}", pack.id, b.id))
     }
 
     fn pack_def(&self) -> &'static Pack {
@@ -206,6 +220,10 @@ impl Engine {
 
     fn start(&mut self, pack_idx: usize, bi: usize) {
         let b = &manifest().packs[pack_idx].behaviors[bi];
+        // 被禁用/总静音的行为连资源都不取：不会播、也不会释放临时文件
+        if self.blocked(&manifest().packs[pack_idx], b) {
+            return;
+        }
         let Some(res) = SOUND_RESOURCES.iter().find(|r| r.key == b.sound.as_str()).copied() else {
             // 素材缺失：该行为静默，不阻断其它行为
             return;
@@ -259,7 +277,7 @@ impl Engine {
         let n = manifest().packs[pack].behaviors.len();
         for bi in 0..n {
             let b = &manifest().packs[pack].behaviors[bi];
-            if b.on.event != Event::Press {
+            if b.on.event != Event::Press || self.blocked(&manifest().packs[pack], b) {
                 continue;
             }
             if b.on.delay_ms > 0 {
@@ -293,7 +311,7 @@ impl Engine {
         let n = manifest().packs[pack].behaviors.len();
         for bi in 0..n {
             let b = &manifest().packs[pack].behaviors[bi];
-            if b.on.event != Event::Release {
+            if b.on.event != Event::Release || self.blocked(&manifest().packs[pack], b) {
                 continue;
             }
             if !condition_ok(&b.when, held, drag_px) {
@@ -443,6 +461,72 @@ pub fn set_pack(id: &str) -> bool {
     .unwrap_or(false)
 }
 
+/// 启动时套用用户配置里的禁用集合
+pub fn set_disabled(list: Vec<String>) {
+    with(|e| {
+        e.disabled = list.into_iter().collect();
+        e.pending.clear();
+        e.stop_all();
+    });
+}
+
+/// 当前禁用集合（排序后返回，便于稳定写盘）
+pub fn disabled() -> Vec<String> {
+    with(|e| {
+        let mut v: Vec<String> = e.disabled.iter().cloned().collect();
+        v.sort();
+        v
+    })
+    .unwrap_or_default()
+}
+
+pub fn set_muted(m: bool) {
+    with(|e| {
+        e.muted = m;
+        if m {
+            e.pending.clear();
+            e.stop_all();
+        }
+    });
+}
+
+pub fn muted() -> bool {
+    with(|e| e.muted).unwrap_or(false)
+}
+
+/// 单条行为是否启用（与总静音无关：总静音不改这个状态）
+pub fn is_behavior_enabled(key: &str) -> bool {
+    with(|e| !e.disabled.contains(key)).unwrap_or(true)
+}
+
+pub fn set_behavior_enabled(key: &str, on: bool) {
+    with(|e| {
+        if on {
+            e.disabled.remove(key);
+        } else {
+            e.disabled.insert(key.to_string());
+            // 关掉的如果是正在响的那条，立刻停，不等松手
+            e.pending.clear();
+            e.stop_all();
+        }
+    });
+}
+
+/// 当前音效组的行为列表：(key, 菜单标签, 是否启用)
+pub fn current_behaviors() -> Vec<(String, &'static str, bool)> {
+    with(|e| {
+        let p = e.pack_def();
+        p.behaviors
+            .iter()
+            .map(|b| {
+                let key = format!("{}.{}", p.id, b.id);
+                (key.clone(), b.label.as_str(), !e.disabled.contains(&key))
+            })
+            .collect()
+    })
+    .unwrap_or_default()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -498,5 +582,32 @@ mod tests {
         let duck = m.packs.iter().find(|p| p.id == "duck").expect("duck");
         assert!(duck.behaviors.iter().any(|b| b.on.event == Event::Release));
         assert!(!duck.behaviors.iter().any(|b| b.on.delay_ms > 0));
+    }
+
+    #[test]
+    fn behavior_ids_unique_per_pack() {
+        for p in &manifest().packs {
+            let mut ids: Vec<&str> = p.behaviors.iter().map(|b| b.id.as_str()).collect();
+            ids.sort_unstable();
+            let n = ids.len();
+            ids.dedup();
+            assert_eq!(n, ids.len(), "音效组 {} 的行为 id 重复", p.id);
+        }
+    }
+
+    #[test]
+    fn blocked_covers_mute_and_single_switch() {
+        let mut e = Engine::new();
+        let p = &manifest().packs[0];
+        let b = &p.behaviors[0];
+        let key = format!("{}.{}", p.id, b.id);
+        assert!(!e.blocked(p, b));
+
+        e.disabled.insert(key);
+        assert!(e.blocked(p, b));
+        e.disabled.clear();
+
+        e.muted = true;
+        assert!(e.blocked(p, b), "总静音应拦下所有行为");
     }
 }

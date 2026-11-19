@@ -21,6 +21,11 @@ pub struct Config {
     /// 窗口左上角坐标；None 表示用默认的右下角
     pub x: Option<i32>,
     pub y: Option<i32>,
+    /// 被用户单独关掉的行为，键形如 "meow.purr"
+    #[serde(rename = "disabledBehaviors")]
+    pub disabled_behaviors: Vec<String>,
+    /// 总静音：只影响播放，不改各条行为的开关状态
+    pub muted: bool,
 }
 
 impl Default for Config {
@@ -32,6 +37,8 @@ impl Default for Config {
             sound: "meow".to_string(),
             x: None,
             y: None,
+            disabled_behaviors: Vec::new(),
+            muted: false,
         }
     }
 }
@@ -59,7 +66,36 @@ impl Config {
         if self.sound != "duck" {
             self.sound = "meow".to_string();
         }
+        // 只保留形如 "组.行为" 的键，并去重（手改配置不炸）
+        let mut seen = std::collections::HashSet::new();
+        self.disabled_behaviors.retain(|k| k.contains('.') && seen.insert(k.clone()));
         self
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn parses_disabled_and_muted() {
+        let c = serde_json::from_str::<Config>(
+            r#"{"size":160,"opacity":1.0,"mirror":false,"sound":"meow","disabledBehaviors":["meow.purr"],"muted":true}"#,
+        )
+        .expect("合法 JSON")
+        .sanitized();
+        assert_eq!(c.disabled_behaviors, vec!["meow.purr".to_string()]);
+        assert!(c.muted);
+    }
+
+    #[test]
+    fn drops_malformed_keys() {
+        let c = serde_json::from_str::<Config>(
+            r#"{"disabledBehaviors":["nope","meow.purr","meow.purr"],"muted":false}"#,
+        )
+        .unwrap()
+        .sanitized();
+        assert_eq!(c.disabled_behaviors, vec!["meow.purr".to_string()]);
     }
 }
 

@@ -19,6 +19,8 @@ pub(crate) unsafe fn save_config() {
         opacity: s.opacity,
         mirror: s.mirror,
         sound: audio::current_pack_id().to_string(),
+        disabled_behaviors: audio::disabled(),
+        muted: audio::muted(),
         x: Some(wr.left),
         y: Some(wr.top),
     });
@@ -131,6 +133,8 @@ pub unsafe fn apply_cmd(cmd: &str, args: &serde_json::Value) -> serde_json::Valu
             let _ = apply_cmd("set_size", &serde_json::json!({ "size": d.size.default_value }));
             let _ = apply_cmd("set_opacity", &serde_json::json!({ "value": d.opacity.default_value }));
             let _ = apply_cmd("set_mirror", &serde_json::json!({ "value": false }));
+            audio::set_disabled(Vec::new());
+            audio::set_muted(false);
             let _ = apply_cmd("set_sound", &serde_json::json!({ "value": d.audio.default_pack }));
             let _ = apply_cmd("set_locked", &serde_json::json!({ "value": false }));
             let _ = apply_cmd("place_corner", &serde_json::Value::Null);

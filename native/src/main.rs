@@ -70,6 +70,8 @@ fn main() {
     let cfg = config::load();
     DISPLAY_I.store(cfg.size, Ordering::Relaxed);
     // 用户上次选的音效组覆盖内置默认（引擎按需初始化，这里只是记住选择）
+    audio::set_disabled(cfg.disabled_behaviors.clone());
+    audio::set_muted(cfg.muted);
     let _ = audio::set_pack(&cfg.sound);
 
     unsafe {

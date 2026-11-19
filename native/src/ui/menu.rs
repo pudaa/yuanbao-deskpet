@@ -22,6 +22,10 @@ pub(crate) enum MenuCmd {
     Autostart,
     Reset,
     Sound(String),
+    /// 总静音
+    Mute,
+    /// 单条行为开关，值形如 "meow.purr"
+    Behavior(String),
 }
 
 /// 本轮菜单的命令表。菜单是同步弹出的，重开时整体重建。
@@ -81,6 +85,14 @@ pub(crate) unsafe fn settings_submenu() -> HMENU {
         let checked = pack.id == current_sound;
         menu_ui::add(m, id as u32, &pack.label, menu_ui::Kind::Radio(checked));
     }
+    // 当前组的行为开关：关掉「长按呼噜」不影响「叫一声」
+    menu_ui::add(m, 0, "", menu_ui::Kind::Separator);
+    let id = push(MenuCmd::Mute);
+    menu_ui::add(m, id as u32, "全部静音", menu_ui::Kind::Check(audio::muted()));
+    for (key, label, on) in audio::current_behaviors() {
+        let id = push(MenuCmd::Behavior(key));
+        menu_ui::add(m, id as u32, label, menu_ui::Kind::Check(on));
+    }
     menu_ui::add(m, 0, "", menu_ui::Kind::Separator);
     let id = push(MenuCmd::Reset);
     menu_ui::add(m, id as u32, "恢复默认", menu_ui::Kind::Normal);
@@ -117,6 +129,13 @@ pub(crate) unsafe fn handle_menu_cmd(cmd: u16) -> bool {
         }
         MenuCmd::Sound(id) => {
             let _ = apply_cmd("set_sound", &serde_json::json!({ "value": id }));
+        }
+        MenuCmd::Mute => {
+            audio::set_muted(!audio::muted());
+        }
+        MenuCmd::Behavior(key) => {
+            let on = audio::is_behavior_enabled(&key);
+            audio::set_behavior_enabled(&key, !on);
         }
     }
     // 每次经由菜单改动都立刻落盘：桌宠没有「保存」按钮，

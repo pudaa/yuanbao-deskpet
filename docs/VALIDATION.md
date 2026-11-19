@@ -1155,6 +1155,37 @@ Rust 侧不再出现 `FRAME_COUNT`、`PAD`、`FOCUS_Y`、`[160,220,280,340]`、`
 > 模块 prelude 目前带 `#![allow(unused_imports)]`：拆分是机械搬运，先保证行为不变，
 > 未使用的导入留给后续按模块收敛。
 
+### 4.48 行为级开关与总静音（v1.0.4）
+
+**需求**：用户可能喜欢喵叫但不喜欢呼噜，需要能关掉「某一小项」，而不是整组切换。
+
+**设计**：给每条行为一个稳定 `id`（`sounds.json`），用户配置存禁用集合 `disabledBehaviors: ["meow.purr"]`，
+菜单里把当前音效组的每条行为平铺成复选项，另加「全部静音」总开关。
+
+**为什么不用组预设**：3 条行为的组合有 8 种，组会爆炸；且「留喵、关呼噜、留松手」没有对应组。
+
+**生效点**：`press()` 直接跳过被禁用的行为（600ms 的延时条目根本不会建立），`start()` 再兜一层；
+按下后中途关掉某条也会立刻停掉正在响的循环。总静音只影响播放，不改各条开关状态。
+
+**id 稳定性**：`id` 是对外契约（配置引用它），只允许新增不允许改名；
+单测 `behavior_ids_unique_per_pack` 守组内唯一，`blocked_covers_mute_and_single_switch` 守判定。
+
+**验证**（用独立 TEMP 目录隔离 MCI 缓存，避免旧文件干扰）：
+
+| 场景 | 结果 |
+|---|---|
+| `disabledBehaviors: ["meow.purr"]` + 长按 1.1s | 只生成 `meow_press.wav`，**没有** `purr_loop.wav` |
+| 菜单里重新勾上「长按呼噜」 | `disabledBehaviors` 变空数组 |
+| 重新启用后再长按 | `purr_loop.wav` 出现 |
+| `muted: true` + 短按 | 临时目录**完全为空**（连文件都不释放） |
+| 菜单取消「全部静音」+ 短按 | `meow_press.wav` 恢复生成，`muted` 写回 false |
+| `cargo test` | 10 passed（新增 config 解析 2 项、行为 id 唯一、blocked 判定） |
+
+**排查记录**：第一轮验证误判「开关无效」——原因是 ①点击被尚未关闭的菜单吃掉，②`%TEMP%` 里残留上一轮的
+`purr_loop.wav` 让「文件存在」被当成「本轮播放」。判定手段换成临时诊断日志后确认
+`press: disabled={"meow.purr"}`、`start: PLAY meow.meow`（purr 根本没进入 start），
+最终用 `Start-Process -Environment @{ TEMP=... }` 做隔离目录复验。
+
 ---
 
 ## 5. 高 DPI 适配

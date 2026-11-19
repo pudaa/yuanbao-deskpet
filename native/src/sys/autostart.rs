@@ -1,31 +1,5 @@
-#![allow(unused_imports, dead_code)]
 // Phase A 拆分：从 main.rs 原样搬出，逻辑未改。
-use crate::{PENDING_UPDATE, WM_UPDATE_READY};
-use crate::app::cmd::*;
-use crate::app::state::*;
-use crate::app::tick::*;
-use crate::input::follow::*;
-use crate::input::hit::*;
-use crate::render::frames::*;
-use crate::render::present::*;
-use crate::render::press::*;
-use crate::sys::win::*;
-use crate::ui::menu::*;
-use crate::ui::{menu_ui, tray};
-use crate::{audio, config, physics, settings, update};
-use std::sync::atomic::{AtomicI32, Ordering};
-use std::sync::{Mutex, OnceLock};
-use windows::core::{w, PCWSTR};
-use windows::Win32::Foundation::*;
-use windows::Win32::Graphics::Dwm::*;
-use windows::Win32::Graphics::Gdi::*;
-use windows::Win32::System::LibraryLoader::*;
-use windows::Win32::System::Registry::*;
-use windows::Win32::UI::Controls::*;
-use windows::Win32::UI::HiDpi::*;
-use windows::Win32::UI::Input::KeyboardAndMouse::*;
-use windows::Win32::UI::Shell::*;
-use windows::Win32::UI::WindowsAndMessaging::*;
+use windows::core::PCWSTR;
 
 pub(crate) const RUN_KEY: &str = r"Software\Microsoft\Windows\CurrentVersion\Run";
 

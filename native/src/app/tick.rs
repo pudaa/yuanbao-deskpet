@@ -1,30 +1,11 @@
-#![allow(unused_imports, dead_code)]
 // Phase A 拆分：从 main.rs 原样搬出，逻辑未改。
-use crate::{PENDING_UPDATE, WM_UPDATE_READY};
-use crate::app::cmd::*;
 use crate::app::state::*;
 use crate::input::follow::*;
-use crate::input::hit::*;
-use crate::render::frames::*;
 use crate::render::present::*;
 use crate::render::press::*;
-use crate::sys::autostart::*;
 use crate::sys::win::*;
-use crate::ui::menu::*;
-use crate::ui::{menu_ui, tray};
-use crate::{audio, config, physics, settings, update};
-use std::sync::atomic::{AtomicI32, Ordering};
-use std::sync::{Mutex, OnceLock};
-use windows::core::{w, PCWSTR};
+use crate::{audio, physics};
 use windows::Win32::Foundation::*;
-use windows::Win32::Graphics::Dwm::*;
-use windows::Win32::Graphics::Gdi::*;
-use windows::Win32::System::LibraryLoader::*;
-use windows::Win32::System::Registry::*;
-use windows::Win32::UI::Controls::*;
-use windows::Win32::UI::HiDpi::*;
-use windows::Win32::UI::Input::KeyboardAndMouse::*;
-use windows::Win32::UI::Shell::*;
 use windows::Win32::UI::WindowsAndMessaging::*;
 
 /// 每 16ms 一次：物理 → 角度 → 绘制（全程只锁一次，避免重入死锁）

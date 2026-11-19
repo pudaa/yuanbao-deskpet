@@ -9,14 +9,16 @@
 
 #![windows_subsystem = "windows"]
 
+mod audio;
 mod config;
 mod menu_ui;
 mod physics;
+mod settings;
 mod update;
 mod tray;
 
 use std::ffi::c_void;
-use std::sync::atomic::{AtomicI32, AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicI32, Ordering};
 use std::sync::{Mutex, OnceLock};
 
 use windows::core::{w, PCWSTR};
@@ -27,49 +29,41 @@ use windows::Win32::UI::HiDpi::{SetProcessDpiAwarenessContext, DPI_AWARENESS_CON
 use windows::Win32::UI::Input::KeyboardAndMouse::{ReleaseCapture, SetCapture};
 use windows::Win32::UI::WindowsAndMessaging::*;
 
-// ---- 素材与几何常量（与 HTML 版保持一致）----
-const FRAME_COUNT: usize = 361;
-const PAD: i32 = 14; // 四周透明留白
+// ---- 素材与几何参数：一律来自 assets/settings.json，代码不持有字面量 ----
+fn frame_count() -> usize {
+    settings::get().frames.count
+}
+fn main_start() -> usize {
+    settings::get().frames.main_start
+}
+fn pad() -> i32 {
+    settings::get().geometry.pad
+}
+fn focus_y() -> f64 {
+    settings::get().geometry.focus_y
+}
+fn idle_drift() -> usize {
+    settings::get().frames.idle_drift_frames
+}
+fn idle_enter() -> f64 {
+    settings::get().geometry.idle_enter
+}
+fn idle_exit_factor() -> f64 {
+    settings::get().geometry.idle_exit_factor
+}
+fn hit_alpha() -> u8 {
+    settings::get().geometry.hit_alpha
+}
 
 /// 猫的逻辑显示边长（设置面板可改）
-static DISPLAY_I: AtomicI32 = AtomicI32::new(160);
+static DISPLAY_I: AtomicI32 = AtomicI32::new(0);
 
 fn disp() -> i32 {
     DISPLAY_I.load(Ordering::Relaxed)
 }
 
 fn win() -> i32 {
-    disp() + PAD * 2
-}
-const MAIN_START: usize = 32; // 帧 0..31 是抬头预备动作
-/// 旋转基准在窗口高度上的比例（猫鼻子位置）
-const FOCUS_Y: f64 = 0.395;
-
-/// 可切换的音效组
-///
-/// 鸭子组是「按下 + 松手」两段（jijiji 的拿起/放下）；
-/// 圆宝叫声只有一声，按下时播，松手不重复。
-#[derive(Clone, Copy, PartialEq, Eq)]
-enum SoundPack {
-    Meow,
-    Duck,
-}
-
-impl SoundPack {
-    fn from_str(s: &str) -> Self {
-        if s == "duck" {
-            Self::Duck
-        } else {
-            Self::Meow
-        }
-    }
-
-    fn as_str(self) -> &'static str {
-        match self {
-            Self::Meow => "meow",
-            Self::Duck => "duck",
-        }
-    }
+    disp() + pad() * 2
 }
 
 struct Frame {
@@ -111,7 +105,6 @@ struct State {
     // 可调参数（设置面板通过 IPC 改）
     opacity: f64,
     mirror: bool,
-    sound: SoundPack,
     idle_radius: f64,
 
     // 上一帧的"已绘制状态"快照，用于跳过无变化的重绘
@@ -158,6 +151,8 @@ fn main() {
     // 所以放在这里，而不是等窗口创建完再套。
     let cfg = config::load();
     DISPLAY_I.store(cfg.size, Ordering::Relaxed);
+    // 用户上次选的音效组覆盖内置默认（引擎按需初始化，这里只是记住选择）
+    let _ = audio::set_pack(&cfg.sound);
 
     unsafe {
         // 默认定时器精度约 15.6ms，物理步进会抖；提到 1ms 让甩出更连续
@@ -166,8 +161,8 @@ fn main() {
 
         // 全量预载：把解码/缩放的一次性成本从"每帧"挪到"启动"。
         // 代价是内存从 ~6MB 升到 ~50MB，但转动 CPU 会明显下降。
-        let mut frames: Vec<Option<Frame>> = (0..FRAME_COUNT).map(|_| None).collect();
-        for i in 0..FRAME_COUNT {
+        let mut frames: Vec<Option<Frame>> = (0..frame_count()).map(|_| None).collect();
+        for i in 0..frame_count() {
             frames[i] = load_one(i);
         }
         if frames.iter().all(|f| f.is_none()) {
@@ -207,7 +202,7 @@ fn main() {
         ST.get_or_init(|| {
             Mutex::new(State {
                 frames,
-                cur: MAIN_START,
+                cur: main_start(),
                 dib: None,
                 hwnd,
                 dragging: false,
@@ -224,8 +219,7 @@ fn main() {
                 locked: false,
                 opacity: cfg.opacity,
                 mirror: cfg.mirror,
-                sound: SoundPack::from_str(&cfg.sound),
-                idle_radius: 28.0,
+                idle_radius: idle_enter(),
                 last_cur: usize::MAX,
                 last_sx: 1.0,
                 last_sy: 1.0,
@@ -329,7 +323,7 @@ fn frames_dir() -> std::path::PathBuf {
 
 /// 从自身 PE 资源读 RT_RCDATA。exe 被复制到任何目录都能拿到帧和音效，
 /// 不再依赖旁边的 web/ 目录 —— 这是「单文件分发」的关键。
-unsafe fn resource(id: u16) -> Option<&'static [u8]> {
+pub(crate) unsafe fn resource(id: u16) -> Option<&'static [u8]> {
     use windows::Win32::System::LibraryLoader::{
         FindResourceW, LoadResource, LockResource, SizeofResource,
     };
@@ -450,7 +444,7 @@ unsafe fn load_one(i: usize) -> Option<Frame> {
     for y in 0..disp() as u32 {
         for x in 0..disp() as u32 {
             let p = small.get_pixel(x, y).0;
-            let idx = (((y as i32 + PAD) * win() + (x as i32 + PAD)) * 4) as usize;
+            let idx = (((y as i32 + pad()) * win() + (x as i32 + pad())) * 4) as usize;
             bgra[idx] = p[2];
             bgra[idx + 1] = p[1];
             bgra[idx + 2] = p[0];
@@ -463,7 +457,7 @@ unsafe fn load_one(i: usize) -> Option<Frame> {
 impl State {
     /// 确保第 i 帧已加载（全量预载后通常直接命中）
     unsafe fn ensure_frame(&mut self, i: usize) {
-        let i = i % FRAME_COUNT;
+        let i = i % frame_count();
         if self.frames[i].is_none() {
             self.frames[i] = load_one(i);
         }
@@ -641,7 +635,7 @@ unsafe fn update_frame(s: &mut State) {
     let mut wr = RECT::default();
     let _ = GetWindowRect(s.hwnd, &mut wr);
     let cx = (wr.left + wr.right) as f64 / 2.0;
-    let cy = wr.top as f64 + (wr.bottom - wr.top) as f64 * FOCUS_Y;
+    let cy = wr.top as f64 + (wr.bottom - wr.top) as f64 * focus_y();
 
     let mut pt = POINT::default();
     if GetCursorPos(&mut pt).is_err() {
@@ -659,128 +653,10 @@ unsafe fn update_frame(s: &mut State) {
     if s.mirror {
         deg = (360.0 - deg) % 360.0;
     }
-    let pos = MAIN_START as f64 + deg / 360.0 * (360.0 - MAIN_START as f64);
-    s.cur = (pos.round() as usize).clamp(0, FRAME_COUNT - 1);
-}
-
-fn sounds_dir() -> std::path::PathBuf {
-    let mut dir = frames_dir();
-    dir.pop(); // frames -> web
-    dir.join("sounds")
-}
-
-/// MCI 多实例轮转：PlaySound 是单通道，新播放会打断旧的，
-/// 快速连点就只剩最后一声。开 4 路 down + 2 路 up 轮流播，才能真正"吧唧吧唧"叠起来。
-const DOWN_INSTANCES: usize = 4;
-const UP_INSTANCES: usize = 2;
-/// 圆宝叫声 0.65s，两路足够：连点时会自然打断前一声，不会越堆越糊
-const MEOW_INSTANCES: usize = 2;
-static MCI_READY: OnceLock<bool> = OnceLock::new();
-static MCI_DOWN_IDX: AtomicUsize = AtomicUsize::new(0);
-static MCI_UP_IDX: AtomicUsize = AtomicUsize::new(0);
-static MCI_MEOW_IDX: AtomicUsize = AtomicUsize::new(0);
-
-unsafe fn mci(cmd: &str) -> bool {
-    use windows::Win32::Media::Multimedia::mciSendStringW;
-    let w: Vec<u16> = cmd.encode_utf16().chain(std::iter::once(0)).collect();
-    mciSendStringW(PCWSTR(w.as_ptr()), None, HWND::default()) == 0
-}
-
-/// MCI 只接受文件路径，不接受内存。首次播放时把内嵌 wav 释放到临时目录，
-/// exe 本体仍是单文件（分发时只需要一个 exe）。
-fn sound_files() -> Option<(std::path::PathBuf, std::path::PathBuf, std::path::PathBuf)> {
-    let dir = std::env::temp_dir().join("yuanbao-deskpet-sounds");
-    std::fs::create_dir_all(&dir).ok()?;
-    let down = dir.join("pat_down.wav");
-    let up = dir.join("pat_up.wav");
-    let meow = dir.join("meow.wav");
-    unsafe {
-        release_sound(202, &down, "pat_down.wav")?;
-        release_sound(203, &up, "pat_up.wav")?;
-        release_sound(204, &meow, "meow.wav")?;
-    }
-    Some((down, up, meow))
-}
-
-/// 把内嵌音频落成临时文件。
-///
-/// 长度对不上就重写：换了新版本的音效后，旧版本留在 %TEMP% 的缓存
-/// 不会继续顶替新声音。内嵌资源缺失时回退读 web/sounds（开发期）。
-unsafe fn release_sound(
-    id: u16,
-    dst: &std::path::Path,
-    name: &str,
-) -> Option<()> {
-    if let Some(bytes) = resource(id).filter(|b| !b.is_empty()) {
-        let stale = std::fs::metadata(dst)
-            .map(|m| m.len() as usize != bytes.len())
-            .unwrap_or(true);
-        if stale {
-            std::fs::write(dst, bytes).ok()?;
-        }
-        return Some(());
-    }
-    if !dst.exists() {
-        std::fs::copy(sounds_dir().join(name), dst).ok()?;
-    }
-    Some(())
-}
-
-fn init_mci() -> bool {
-    unsafe {
-        let Some((down, up, meow)) = sound_files() else {
-            return false;
-        };
-        for i in 0..DOWN_INSTANCES {
-            let _ = mci(&format!("close d{i}"));
-            mci(&format!(
-                "open \"{}\" type waveaudio alias d{i}",
-                down.to_string_lossy()
-            ));
-        }
-        for i in 0..UP_INSTANCES {
-            let _ = mci(&format!("close u{i}"));
-            mci(&format!(
-                "open \"{}\" type waveaudio alias u{i}",
-                up.to_string_lossy()
-            ));
-        }
-        for i in 0..MEOW_INSTANCES {
-            let _ = mci(&format!("close m{i}"));
-            mci(&format!(
-                "open \"{}\" type waveaudio alias m{i}",
-                meow.to_string_lossy()
-            ));
-        }
-        true
-    }
-}
-
-/// 在该组实例里轮转播放一声：每次挑下一个实例，快速连点才不会互相打断
-unsafe fn play_alias(prefix: &str, n: usize, idx: &AtomicUsize) {
-    let ready = *MCI_READY.get_or_init(init_mci);
-    if !ready {
-        return;
-    }
-    let i = idx.fetch_add(1, Ordering::Relaxed) % n;
-    let alias = format!("{prefix}{i}");
-    let _ = mci(&format!("seek {alias} to start"));
-    let _ = mci(&format!("play {alias}"));
-}
-
-/// 按下反馈：圆宝组叫一声，鸭子组播 press 段
-unsafe fn play_press(pack: SoundPack) {
-    match pack {
-        SoundPack::Meow => play_alias("m", MEOW_INSTANCES, &MCI_MEOW_IDX),
-        SoundPack::Duck => play_alias("d", DOWN_INSTANCES, &MCI_DOWN_IDX),
-    }
-}
-
-/// 松手反馈：只有鸭子组有第二段，圆宝叫声不重复叫
-unsafe fn play_release(pack: SoundPack) {
-    if pack == SoundPack::Duck {
-        play_alias("u", UP_INSTANCES, &MCI_UP_IDX);
-    }
+    let start = main_start();
+    let last = frame_count() - 1;
+    let pos = start as f64 + deg / 360.0 * (last - start) as f64;
+    s.cur = (pos.round() as usize).clamp(0, last);
 }
 
 /// 点是否落在猫的实体像素上（读当前帧的 alpha）
@@ -800,7 +676,7 @@ unsafe fn hit_test(s: &mut State, px: i32, py: i32) -> bool {
         .and_then(|f| f.bgra.get(idx))
         .copied()
         .unwrap_or(0)
-        > 24
+        > hit_alpha()
 }
 
 #[derive(Clone, Copy)]
@@ -1019,10 +895,28 @@ fn s_mirror() -> bool {
         .unwrap_or(false)
 }
 
-fn current_sound() -> SoundPack {
-    ST.get()
-        .and_then(|st| st.lock().ok().map(|g| g.sound))
-        .unwrap_or(SoundPack::Meow)
+/// 设置菜单里的一项动作。
+///
+/// 命令 ID 不再手写：构建菜单时按顺序分配并登记，wndproc 只查表。
+/// 这样「加一个尺寸档/加一个音效组」不会再把命令 ID 写到分发范围之外。
+#[derive(Clone)]
+enum MenuCmd {
+    Size(i32),
+    Opacity(i32),
+    Mirror,
+    Autostart,
+    Reset,
+    Sound(String),
+}
+
+/// 本轮菜单的命令表。菜单是同步弹出的，重开时整体重建。
+static MENU_CMDS: OnceLock<Mutex<Vec<(u16, MenuCmd)>>> = OnceLock::new();
+
+/// 设置项的 ID 命名空间（主菜单用 11/12/13/20/30，不冲突即可）
+const MENU_ID_BASE: u16 = 100;
+
+fn menu_cmds() -> &'static Mutex<Vec<(u16, MenuCmd)>> {
+    MENU_CMDS.get_or_init(|| Mutex::new(Vec::new()))
 }
 
 /// 把当前设置与窗口位置写回 config.json（调用方不能已持有 ST 锁）
@@ -1035,75 +929,101 @@ unsafe fn save_config() {
         size: disp(),
         opacity: s.opacity,
         mirror: s.mirror,
-        sound: s.sound.as_str().to_string(),
+        sound: audio::current_pack_id().to_string(),
         x: Some(wr.left),
         y: Some(wr.top),
     });
 }
 
-/// 设置子菜单：自绘，带分组标题与主题色单选圆点
+/// 设置子菜单：自绘，带分组标题与主题色单选圆点。
+/// 档位与音效组都来自配置，命令 ID 现场分配并登记。
 unsafe fn settings_submenu() -> HMENU {
     let m = CreatePopupMenu().unwrap_or_default();
+    let cfg = settings::get();
     let cur_size = disp();
     let cur_op = (s_opacity() * 100.0).round() as i32;
     let mirror = s_mirror();
+    let current_sound = audio::current_pack_id().to_string();
+
+    let mut reg = match menu_cmds().lock() {
+        Ok(g) => g,
+        Err(e) => e.into_inner(),
+    };
+    reg.clear();
+    let mut next = MENU_ID_BASE;
+    let mut push = |cmd: MenuCmd| -> u16 {
+        let id = next;
+        next += 1;
+        reg.push((id, cmd));
+        id
+    };
 
     menu_ui::add(m, 0, "尺寸", menu_ui::Kind::Header);
-    for (i, v) in [160, 220, 280, 340].iter().enumerate() {
-        menu_ui::add(m, 100 + i as u32, &format!("{v} px"), menu_ui::Kind::Radio(*v == cur_size));
+    for &v in &cfg.size.options {
+        let id = push(MenuCmd::Size(v));
+        menu_ui::add(m, id as u32, &format!("{v} px"), menu_ui::Kind::Radio(v == cur_size));
     }
     menu_ui::add(m, 0, "", menu_ui::Kind::Separator);
     menu_ui::add(m, 0, "不透明度", menu_ui::Kind::Header);
-    for (i, v) in [100, 80, 60].iter().enumerate() {
-        menu_ui::add(m, 110 + i as u32, &format!("{v}%"), menu_ui::Kind::Radio(*v == cur_op));
+    for &v in &cfg.opacity.options {
+        let id = push(MenuCmd::Opacity(v));
+        menu_ui::add(m, id as u32, &format!("{v}%"), menu_ui::Kind::Radio(v == cur_op));
     }
     menu_ui::add(m, 0, "", menu_ui::Kind::Separator);
     menu_ui::add(m, 0, "显示", menu_ui::Kind::Header);
-    menu_ui::add(m, 120, "水平镜像", menu_ui::Kind::Check(mirror));
-    menu_ui::add(m, 140, "开机自启", menu_ui::Kind::Check(autostart_on()));
+    let id = push(MenuCmd::Mirror);
+    menu_ui::add(m, id as u32, "水平镜像", menu_ui::Kind::Check(mirror));
+    let id = push(MenuCmd::Autostart);
+    menu_ui::add(m, id as u32, "开机自启", menu_ui::Kind::Check(autostart_on()));
     menu_ui::add(m, 0, "", menu_ui::Kind::Separator);
     menu_ui::add(m, 0, "音效", menu_ui::Kind::Header);
-    let sound = current_sound();
-    menu_ui::add(m, 150, "圆宝叫声", menu_ui::Kind::Radio(sound == SoundPack::Meow));
-    menu_ui::add(m, 151, "鸭子叫声", menu_ui::Kind::Radio(sound == SoundPack::Duck));
+    for pack in audio::packs() {
+        let id = push(MenuCmd::Sound(pack.id.clone()));
+        let checked = pack.id == current_sound;
+        menu_ui::add(m, id as u32, &pack.label, menu_ui::Kind::Radio(checked));
+    }
     menu_ui::add(m, 0, "", menu_ui::Kind::Separator);
-    menu_ui::add(m, 130, "恢复默认", menu_ui::Kind::Normal);
+    let id = push(MenuCmd::Reset);
+    menu_ui::add(m, id as u32, "恢复默认", menu_ui::Kind::Normal);
     m
 }
 
-/// 设置子菜单的命令分发（右键菜单与托盘共用）
-unsafe fn handle_settings_cmd(cmd: u16) {
-    match cmd {
-        100..=103 => {
-            let v = [160.0, 220.0, 280.0, 340.0][(cmd - 100) as usize];
-            let _ = apply_cmd("set_size", &serde_json::json!({ "size": v }));
+/// 设置项分发：只查表，不认识就返回 false。
+/// 命令 ID 由 settings_submenu() 现场分配，这里不再依赖任何区间字面量。
+unsafe fn handle_menu_cmd(cmd: u16) -> bool {
+    let action = menu_cmds()
+        .lock()
+        .ok()
+        .and_then(|reg| reg.iter().find(|(id, _)| *id == cmd).map(|(_, a)| a.clone()));
+    let Some(action) = action else {
+        return false;
+    };
+    match action {
+        MenuCmd::Size(v) => {
+            let _ = apply_cmd("set_size", &serde_json::json!({ "size": v as f64 }));
         }
-        110..=112 => {
-            let v = [100.0, 80.0, 60.0][(cmd - 110) as usize];
-            let _ = apply_cmd("set_opacity", &serde_json::json!({ "value": v }));
+        MenuCmd::Opacity(v) => {
+            let _ = apply_cmd("set_opacity", &serde_json::json!({ "value": v as f64 }));
         }
-        120 => {
+        MenuCmd::Mirror => {
             let cur = s_mirror();
             let _ = apply_cmd("set_mirror", &serde_json::json!({ "value": !cur }));
         }
-        140 => {
+        MenuCmd::Autostart => {
             let on = autostart_on();
             set_autostart(!on);
         }
-        130 => {
+        MenuCmd::Reset => {
             let _ = apply_cmd("reset_all", &serde_json::Value::Null);
         }
-        150 => {
-            let _ = apply_cmd("set_sound", &serde_json::json!({ "value": "meow" }));
+        MenuCmd::Sound(id) => {
+            let _ = apply_cmd("set_sound", &serde_json::json!({ "value": id }));
         }
-        151 => {
-            let _ = apply_cmd("set_sound", &serde_json::json!({ "value": "duck" }));
-        }
-        _ => {}
     }
     // 每次经由菜单改动都立刻落盘：桌宠没有「保存」按钮，
     // 用户也不该为了留住设置而正常退出一次。
     save_config();
+    true
 }
 
 /// 发现新版本时的确认框；确认后下载并重启
@@ -1243,7 +1163,7 @@ pub unsafe fn apply_cmd(cmd: &str, args: &serde_json::Value) -> serde_json::Valu
             "idleRadius": s.idle_radius,
             "locked": s.locked,
             "mirror": s.mirror,
-            "sound": s.sound.as_str(),
+            "sound": audio::current_pack_id(),
             "alwaysOnTop": true,
             "autostart": false,
             "theme": "fresh",
@@ -1252,7 +1172,8 @@ pub unsafe fn apply_cmd(cmd: &str, args: &serde_json::Value) -> serde_json::Valu
             "y": 0,
         }),
         "set_opacity" => {
-            s.opacity = (num("value") / 100.0).clamp(0.2, 1.0);
+            let oc = &settings::get().opacity;
+            s.opacity = (num("value") / 100.0).clamp(oc.min as f64 / 100.0, oc.max as f64 / 100.0);
             serde_json::Value::Null
         }
         "set_mirror" => {
@@ -1265,14 +1186,13 @@ pub unsafe fn apply_cmd(cmd: &str, args: &serde_json::Value) -> serde_json::Valu
         }
         "set_smoothing" => serde_json::Value::Null,
         "set_sound" => {
-            s.sound = match args.get("value").and_then(|v| v.as_str()) {
-                Some("duck") => SoundPack::Duck,
-                _ => SoundPack::Meow,
-            };
+            let id = args.get("value").and_then(|v| v.as_str()).unwrap_or("");
+            let _ = audio::set_pack(id);
             serde_json::Value::Null
         }
         "set_size" => {
-            let v = num("size").clamp(120.0, 360.0) as i32;
+            let sc = &settings::get().size;
+            let v = num("size").clamp(sc.min as f64, sc.max as f64) as i32;
             if v != disp() {
                 DISPLAY_I.store(v, Ordering::Relaxed);
                 let hwnd = s.hwnd;
@@ -1284,7 +1204,7 @@ pub unsafe fn apply_cmd(cmd: &str, args: &serde_json::Value) -> serde_json::Valu
                         for f in s2.frames.iter_mut() {
                             *f = None;
                         }
-                        for i in 0..FRAME_COUNT {
+                        for i in 0..frame_count() {
                             s2.frames[i] = load_one(i);
                         }
                         s2.dib = None;
@@ -1327,10 +1247,11 @@ pub unsafe fn apply_cmd(cmd: &str, args: &serde_json::Value) -> serde_json::Valu
             // 原来这里只回一份默认值 JSON、不真正改状态，菜单点「恢复默认」等于没反应。
             // 现在先放锁再逐项下发，复用各条命令自己的重载/重排逻辑。
             drop(s);
-            let _ = apply_cmd("set_size", &serde_json::json!({ "size": 160 }));
-            let _ = apply_cmd("set_opacity", &serde_json::json!({ "value": 100 }));
+            let d = settings::get();
+            let _ = apply_cmd("set_size", &serde_json::json!({ "size": d.size.default_value }));
+            let _ = apply_cmd("set_opacity", &serde_json::json!({ "value": d.opacity.default_value }));
             let _ = apply_cmd("set_mirror", &serde_json::json!({ "value": false }));
-            let _ = apply_cmd("set_sound", &serde_json::json!({ "value": "meow" }));
+            let _ = apply_cmd("set_sound", &serde_json::json!({ "value": d.audio.default_pack }));
             let _ = apply_cmd("set_locked", &serde_json::json!({ "value": false }));
             let _ = apply_cmd("place_corner", &serde_json::Value::Null);
             serde_json::Value::Null
@@ -1405,6 +1326,9 @@ unsafe fn on_tick() {
         }
     }
 
+    // 音效行为的时间推进：延迟触发、循环续播、淡出
+    audio::tick();
+
     // 按压动画按 Web 版关键帧推进
     s.tick_press(dt);
     let scale = press_scale(s.press);
@@ -1419,7 +1343,7 @@ unsafe fn on_tick() {
         let mut wr = RECT::default();
         let _ = GetWindowRect(s.hwnd, &mut wr);
         let cx = (wr.left + wr.right) as f64 / 2.0;
-        let cy = wr.top as f64 + (wr.bottom - wr.top) as f64 * FOCUS_Y;
+        let cy = wr.top as f64 + (wr.bottom - wr.top) as f64 * focus_y();
         let mut pt = POINT::default();
         if GetCursorPos(&mut pt).is_ok() {
             let dx = pt.x as f64 - cx;
@@ -1428,7 +1352,7 @@ unsafe fn on_tick() {
             let r = s.idle_radius;
             if d < r {
                 s.in_idle = true;
-            } else if d > r * 1.7 {
+            } else if d > r * idle_exit_factor() {
                 s.in_idle = false;
             }
         }
@@ -1437,20 +1361,23 @@ unsafe fn on_tick() {
             // 回归路径要走环形最短方向，不能一直往下递减。
             // 主环是 32..360（32=上看，顺时针递增，360 与 32 相邻）；
             // 例如从左上(≈319)顺时针到 32 只有 41 帧，逆时针要 287 帧。
-            if s.cur <= 32 {
+            let start = main_start();
+            let last = frame_count() - 1;
+            let step = idle_drift();
+            if s.cur <= start {
                 // 已到"上看"，开始低头（帧 31..0 是抬头动画的反向）
-                s.cur = s.cur.saturating_sub(4);
+                s.cur = s.cur.saturating_sub(step);
             } else {
-                let dist_cw = 360 - s.cur; // 顺时针：cur -> 360(=32)
-                let dist_ccw = s.cur - 32; // 逆时针：cur -> 32
+                let dist_cw = last - s.cur; // 顺时针：cur -> last(=start)
+                let dist_ccw = s.cur - start; // 逆时针：cur -> start
                 if dist_cw <= dist_ccw {
-                    s.cur = if s.cur >= 360 {
-                        32
+                    s.cur = if s.cur >= last {
+                        start
                     } else {
-                        (s.cur + 4).min(360)
+                        (s.cur + step).min(last)
                     };
                 } else {
-                    s.cur = s.cur.saturating_sub(4).max(32);
+                    s.cur = s.cur.saturating_sub(step).max(start);
                 }
             }
         } else {
@@ -1538,7 +1465,7 @@ unsafe extern "system" fn wndproc(
                     if hit {
                         // 跳过 ease-out 最迟疑的开头，让第一帧就有可见形变
                         s.press = Press::Down(0.015);
-                        play_press(s.sound);
+                        audio::press();
                     } else {
                         s.press = Press::Idle;
                     }
@@ -1590,14 +1517,17 @@ unsafe extern "system" fn wndproc(
                         // 结果按下音播了、松开音不播。
                         let mut cpt = POINT::default();
                         let _ = GetCursorPos(&mut cpt);
-                        let moved = (cpt.x - s.press_cursor.0).abs() > 4
-                            || (cpt.y - s.press_cursor.1).abs() > 4;
+                        // 位移按像素传给音效引擎：when.movedLt 需要的是距离，不是布尔
+                        let drag = (cpt.x - s.press_cursor.0)
+                            .abs()
+                            .max((cpt.y - s.press_cursor.1).abs());
+                        let moved = drag > 4;
 
                         if s.pressed_hit {
                             s.press = Press::Bounce(0.0); // 松手回弹
                             // 松手音与「是否点击」解耦：点击、长按、拖动、甩出
                             // 都应该有完整的「拿起 → 放下」反馈（圆宝组只有按下那一声）。
-                            play_release(s.sound);
+                            audio::release(drag);
                         } else {
                             s.press = Press::Idle;
                         }
@@ -1647,7 +1577,7 @@ unsafe extern "system" fn wndproc(
                 }
                 // 范围必须覆盖全部设置项：4.37 那个「命令 ID 越界被静默丢弃」的坑
                 // 就是漏了新增项。加菜单项时记得同步这里。
-                100..=160 => handle_settings_cmd(cmd),
+
                 11 => {
                     let locked = ST
                         .get()
@@ -1659,7 +1589,10 @@ unsafe extern "system" fn wndproc(
                 13 => {
                     let _ = DestroyWindow(hwnd);
                 }
-                _ => {}
+                // 设置项的命令 ID 是动态分配的，这里统一查表
+                _ => {
+                    let _ = handle_menu_cmd(cmd);
+                }
             }
             LRESULT(0)
         }
@@ -1681,7 +1614,7 @@ unsafe extern "system" fn wndproc(
                             sub, TPM_RETURNCMD | TPM_NONOTIFY, pt.x, pt.y, 0, hwnd, None,
                         );
                         let _ = DestroyMenu(sub);
-                        handle_settings_cmd(cmd.0 as u16);
+                        let _ = handle_menu_cmd(cmd.0 as u16);
                     }
                     tray::Action::ToggleLock => set_locked(hwnd, !locked),
                     tray::Action::ToggleVisible => {

@@ -16,7 +16,7 @@
 | 中心收势 | 鼠标贴到猫身上时平滑低头，非强制回正 |
 | 拖动 | 左键按住拖动窗口 |
 | 甩出 | 快速拖动后松手，猫会被甩出去在桌面上弹跳，带重力/阻尼/落地挤压 |
-| 摸猫 | 单击小猫有音效反馈 + 弹跳动画；音效可切换「圆宝叫声」/「鸭子叫声」，默认圆宝叫声 |
+| 摸猫 | 单击有音效反馈 + 弹跳动画；音效可切换「圆宝叫声」/「鸭子叫声」，默认圆宝叫声。音效由「行为表」驱动，长按/循环等行为已预留接口 |
 | 右键菜单 | 设置 ▸ / 锁定（穿透）/ 回到右下角 / 圆宝再见；自绘「日系清新」风格，带圆角与发丝线 |
 | 托盘 | 显隐、设置；与右键菜单共用同一套自绘菜单 |
 | 设置 | 纯原生自绘子菜单：尺寸 160/220/280/340、不透明度 100/80/60%、水平镜像、开机自启、音效（圆宝叫声 / 鸭子叫声）、恢复默认（当前值打勾，实时生效并落盘） |
@@ -30,7 +30,10 @@ yuanbao-deskpet/
 │   ├── Cargo.toml
 │   └── src/
 │       ├── main.rs       WS_EX_LAYERED + UpdateLayeredWindow、物理、资源加载
-│       ├── config.rs     设置持久化（%APPDATA%\YuanBaoDeskPet\config.json）
+│       ├── settings.rs   内置配置解析（assets/settings.json）
+│       ├── config.rs     用户配置持久化（%APPDATA%\YuanBaoDeskPet\config.json）
+│       ├── audio/mod.rs  音效行为引擎（触发 × 播放 × 条件）
+│       ├── audio/mci.rs  MCI 封装
 │       ├── menu_ui.rs    owner-draw 自绘菜单（日系清新）
 │       ├── physics.rs    甩出物理
 │       ├── tray.rs       托盘
@@ -48,8 +51,10 @@ yuanbao-deskpet/
 │   ├── bubble/           气泡页（当前未启用，留给后续碎碎念）
 │   ├── frames/           361 帧 WebP（0000–0360）
 │   └── sounds/           抚摸音效 pat_down / pat_up
-├── assets/               图标、frames.json（角度锚点表）
+├── assets/               图标、frames.json（角度锚点表）、settings.json（档位/几何）、sounds.json（音效行为）
 ├── docs/
+│   ├── ARCHITECTURE.md   数据流、音效引擎、配置分层
+│   ├── CONSTRAINTS.md    改代码前必读的硬约束
 │   ├── VALIDATION.md     完整验证文档（含所有踩坑记录）
 │   └── figures/          接触表等图
 ├── tools/                素材处理脚本（Python）
@@ -105,6 +110,24 @@ pos = 32 + deg / 360 × 328            映射到帧 32..360
 ```
 
 闭环处 `pos > 357` 时用 3° 把帧 360 交叉淡化到帧 32。
+
+## 音效扩展
+
+音效不是写死的枚举，而是 `assets/sounds.json` 里的一张**行为表**：
+
+```json
+{ "on": { "event": "press", "delayMs": 600 },
+  "sound": "purr_loop",
+  "play": { "mode": "loop", "until": "release", "fadeOutMs": 150 },
+  "volume": 0.8, "instances": 2 }
+```
+
+- 触发：`press` / `release`，可带 `delayMs`（长按计时）或 `whileHeld`（按下即开始）
+- 播放：`once` / `loop` + `until: release|forever`
+- 条件：`when: { heldMsLt | heldMsGte | movedLt }`，用来表达"短按才响、长按不响"
+
+加一段音效 = 把 `web/sounds/<sound>.wav` 放好 + 在 `sounds.json` 里加一条，**不用改 Rust**。
+素材缺失时该行为静默、构建照常通过（只给一条 warning）。
 
 ## 素材说明
 

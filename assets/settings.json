@@ -1,0 +1,32 @@
+{
+  "$comment": "内置配置：档位、几何与帧参数。代码不再持有这些字面量。",
+  "frames": {
+    "count": 361,
+    "mainStart": 32,
+    "idleDriftFrames": 4
+  },
+  "geometry": {
+    "pad": 14,
+    "focusY": 0.395,
+    "idleEnter": 28.0,
+    "idleExitFactor": 1.7,
+    "hitAlpha": 24
+  },
+  "size": {
+    "options": [160, 220, 280, 340],
+    "min": 120,
+    "max": 360,
+    "default": 160
+  },
+  "opacity": {
+    "options": [100, 80, 60],
+    "min": 20,
+    "max": 100,
+    "default": 100
+  },
+  "audio": {
+    "defaultPack": "meow",
+    "defaultFadeOutMs": 150,
+    "defaultInstances": 4
+  }
+}

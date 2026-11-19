@@ -1,0 +1,40 @@
+{
+  "$comment": "音效行为表（纯配置，不含音频）。每条行为 = 触发 × 播放 × 条件。音频文件按 sound 字段找 web/sounds/<sound>.wav，缺失则该行为静默。",
+  "version": 1,
+  "packs": [
+    {
+      "id": "meow",
+      "label": "圆宝叫声",
+      "behaviors": [
+        {
+          "on": { "event": "press" },
+          "sound": "meow_press",
+          "play": { "mode": "once" }
+        },
+        {
+          "on": { "event": "press", "delayMs": 600 },
+          "sound": "purr_loop",
+          "play": { "mode": "loop", "until": "release", "fadeOutMs": 150 },
+          "volume": 0.8,
+          "instances": 2
+        }
+      ]
+    },
+    {
+      "id": "duck",
+      "label": "鸭子叫声",
+      "behaviors": [
+        {
+          "on": { "event": "press" },
+          "sound": "duck_press",
+          "play": { "mode": "once" }
+        },
+        {
+          "on": { "event": "release" },
+          "sound": "duck_release",
+          "play": { "mode": "once" }
+        }
+      ]
+    }
+  ]
+}

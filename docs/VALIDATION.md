@@ -1067,6 +1067,52 @@ mui::add(menu, ID_LOCK, if locked { "解锁（可拖动）" } else { "锁定（�
 5. 设置 ▸ 恢复默认 → 回到 160px / 100% / 圆宝叫声 / 右下角。
 6. 检查 `%APPDATA%\YuanBaoDeskPet\config.json` 内容与界面一致。
 
+### 4.46 音效从枚举改为行为表 + 全量配置化（未发版）
+
+**背景**：老大指出「按下/长按/松开」不该是三个槽位加开关，而应是**行为组合**：
+圆宝 =（按下：叫 / 长按 600ms 起：循环呼噜 / 松手：无），鸭子 =（按下：音效1 / 长按：无 / 松手：音效2），
+并且以后还要支持「自按下起就循环、不判断按多久」。同时明确：**一切配置避免硬编码**。
+
+**模型**：音效组 = 行为列表，行为 = 触发 × 播放 × 条件（详见 `docs/ARCHITECTURE.md` 第 2 节）。
+条件用 `when.heldMsLt / heldMsGte / movedLt` 表达，替代任何布尔开关；
+同一组可并存多条 `press` 行为，为「同一种效果兼容两套参数」留出空间。
+
+**配置化**：
+
+| 项 | 落点 |
+|---|---|
+| 尺寸/不透明度档位与范围 | `assets/settings.json` |
+| 几何（pad / focusY / idle 进出 / 命中 alpha） | `assets/settings.json` |
+| 帧参数（count / mainStart / idle 步进） | `assets/settings.json` |
+| 音效组与行为 | `assets/sounds.json` |
+| 用户当前值 | `%APPDATA%\YuanBaoDeskPet\config.json` |
+
+Rust 侧不再出现 `FRAME_COUNT`、`PAD`、`FOCUS_Y`、`[160,220,280,340]`、`100..=160` 这类字面量。
+
+**菜单命令 ID 动态分配**：`settings_submenu()` 构建时分配 ID 并登记 `MenuCmd`，`wndproc` 只查表。
+4.37 那个「新 ID 越界被静默丢弃」的问题从机制上消失。
+
+**资源 ID 动态分配**：`build.rs` 读 `sounds.json` 的 `sound` 键，按出现顺序分配 RCDATA 400+，
+并生成 `sounds_map.rs`（key → id/字节数）。加音频不用改 Rust。
+
+**构建健壮性**：原先 `icon.ico` 一缺，`build_res` 直接 return，连帧和音效都不嵌。
+现在图标可选，音效按文件存在与否逐个嵌入，缺素材只给 `cargo:warning`。
+
+**验证**：
+
+| 项 | 结果 |
+|---|---|
+| `cargo test` | 6 passed（manifest 解析/ID 唯一/默认组存在/条件语义/圆宝延时循环/鸭子松手） |
+| 短按 150ms（meow 组） | `%TEMP%\yuanbao-deskpet-sounds\` 只出现 `meow_press.wav`，无 `purr_loop.wav` |
+| 长按 1000ms（meow 组） | 按住到 600ms 后 `purr_loop.wav` 出现，说明延时行为真的起播 |
+| 菜单切换「鸭子叫声」 | `config.json` 的 `sound` 由 `meow` 变 `duck`，其余字段不动 |
+| 菜单截图 | `build/check_menu_dynamic.png`：档位/音效组全部由配置生成 |
+
+> 长按循环用一份 `meow_press.wav` 的临时副本做占位验证，验完已删除；
+> `sounds.json` 里 `purr_loop` 保留为"待素材"状态，缺失时静默。
+
+**遗留**：Phase A 模块拆分（main.rs 仍 1600+ 行）尚未执行，目标形态见 `docs/ARCHITECTURE.md` 第 5 节。
+
 ---
 
 ## 5. 高 DPI 适配

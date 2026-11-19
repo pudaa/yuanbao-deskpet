@@ -26,9 +26,8 @@
 ```
 yuanbao-deskpet/
 ├── native/               原生绘制版（主力，零 WebView）
-│   ├── build.rs          生成 PE .res：图标 + 361 帧 + 2 个 wav + 版本信息
-│   ├── Cargo.toml
 │   ├── build.rs          生成 PE .res：图标 + 361 帧 + 3 个 wav + 版本信息
+│   ├── Cargo.toml
 │   └── src/
 │       ├── main.rs       WS_EX_LAYERED + UpdateLayeredWindow、物理、资源加载
 │       ├── config.rs     设置持久化（%APPDATA%\YuanBaoDeskPet\config.json）
@@ -36,12 +35,13 @@ yuanbao-deskpet/
 │       ├── physics.rs    甩出物理
 │       ├── tray.rs       托盘
 │       └── update.rs     GitHub Releases 自更新
-├── src-tauri/            WebView 版 Rust 端（对照保留）
-│   ├── src/
-│   │   ├── main.rs       入口、窗口、命令、托盘、光标轮询
-│   │   └── physics.rs    甩出物理（重力/反弹/摩擦/速度估算）
-│   ├── capabilities/     窗口权限
-│   └── tauri.conf.json
+├── legacy/
+│   └── webview/          WebView 对照版（半搁置，见 VALIDATION 4.14 起的迁移记录）
+│       └── src-tauri/
+│           ├── src/      入口、窗口、命令、托盘、光标轮询、甩出物理
+│           ├── capabilities/  窗口权限
+│           └── tauri.conf.json
+│   （其前端仍复用根目录 web/，frontendDist = ../../../web）
 ├── web/                  前端（打包时整体内嵌）
 │   ├── pet/              桌宠画布：index.html / renderer.js / style.css
 │   ├── settings/         设置面板
@@ -68,9 +68,9 @@ export PATH="$HOME/.cargo/bin:$PATH"
 cargo build --release --manifest-path native/Cargo.toml
 # 产物：native/target/release/yuanbao-native.exe（复制成 dist/圆宝桌宠-单文件.exe 分发）
 
-# 对照：WebView 版
-cargo build --release --manifest-path src-tauri/Cargo.toml
-# 产物：src-tauri/target/release/yuanbao-deskpet.exe
+# 对照：WebView 版（半搁置）
+cargo build --release --manifest-path legacy/webview/src-tauri/Cargo.toml
+# 产物：legacy/webview/src-tauri/target/release/yuanbao-deskpet.exe
 ```
 
 > 构建需要 `assets/icon.ico` 与 `web/frames/`、`web/sounds/` 就位（素材不入库，见下节）。

@@ -4,6 +4,8 @@
 > 项目：`D:\Codes\yuanbao-deskpet`
 > 技术栈：**原生版纯 Win32 + GDI（主力，无 WebView）**；Tauri 2 + WebView2（对照，见 4.14 起的迁移记录）
 > 产物：`dist\圆宝桌宠-单文件.exe`，**7.3 MB 单文件**（当前 v1.0.3；Web 版 `dist\YuanBaoDeskPet.exe` 保留对照）
+>
+> **目录变更（2026-11-19）**：WebView 对照版已从 `src-tauri/` 移至 `legacy/webview/src-tauri/`（前端仍复用根目录 `web/`）。下文 4.x 记录中的 `src-tauri/` 均指旧位置，作为历史保留。
 
 ---
 

@@ -1,6 +1,5 @@
 # ---- 构建与临时产物 ----
-/native/target/
-/src-tauri/target/
+**/target/
 /build/
 /dist/
 
@@ -12,7 +11,7 @@
 /archive/
 /assets/*.png
 /assets/icon.ico
-/src-tauri/icons/
+/legacy/webview/src-tauri/icons/
 /docs/figures/
 *.mp4
 *.mp3

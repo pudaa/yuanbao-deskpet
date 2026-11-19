@@ -1,0 +1,19 @@
+# ---- 构建与临时产物 ----
+/native/target/
+/src-tauri/target/
+/build/
+/dist/
+
+# ---- 圆宝的影像与声音素材：不入库 ----
+/web/frames/
+/web/sounds/
+/extracted_frames/
+/extracted_frames_v1/
+/archive/
+/assets/*.png
+/assets/icon.ico
+/src-tauri/icons/
+/docs/figures/
+*.mp4
+*.mp3
+*.wav

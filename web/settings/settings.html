@@ -1,0 +1,113 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<title>圆宝桌宠 · 设置</title>
+<link rel="stylesheet" href="settings.css" />
+</head>
+<body data-theme="fresh">
+  <main class="panel">
+    <header class="head">
+      <div>
+        <h1>圆宝桌宠</h1>
+        <p class="sub">让圆宝安静地陪着你</p>
+      </div>
+      <svg class="botanical" viewBox="0 0 64 64" aria-hidden="true">
+        <path d="M32 60 C32 44 32 26 32 8" />
+        <path d="M32 44 C25 40 19 34 17 26" />
+        <path d="M32 36 C39 32 45 26 47 18" />
+        <path d="M32 28 C26 24 22 19 21 13" />
+        <path d="M32 50 C38 48 42 44 44 39" />
+      </svg>
+    </header>
+
+    <section>
+      <h2>外观</h2>
+
+      <div class="row">
+        <label for="size">尺寸</label>
+        <output id="sizeVal">160 px</output>
+        <input type="range" id="size" min="120" max="360" step="10" value="160" />
+      </div>
+
+      <div class="row">
+        <label for="opacity">不透明度</label>
+        <output id="opacityVal">100%</output>
+        <input type="range" id="opacity" min="40" max="100" step="1" value="100" />
+      </div>
+
+      <label class="check">
+        <input type="checkbox" id="mirror" />
+        <span class="box"></span>
+        <span class="txt">
+          水平镜像
+          <em>把圆宝翻个方向，适合放在屏幕左侧</em>
+        </span>
+      </label>
+
+      <div class="block">
+        <label>界面主题</label>
+        <div class="seg" role="radiogroup" aria-label="界面主题">
+          <button type="button" data-theme-btn="fresh" class="on">日系清新</button>
+          <button type="button" data-theme-btn="shoujo">少女漫画</button>
+        </div>
+      </div>
+    </section>
+
+    <section>
+      <h2>行为</h2>
+
+      <div class="row">
+        <label for="smoothing">跟手速度</label>
+        <output id="smoothingVal">1.0×</output>
+        <input type="range" id="smoothing" min="0.5" max="2" step="0.1" value="1" />
+      </div>
+
+      <div class="row">
+        <label for="idle">中心保持半径</label>
+        <output id="idleVal">28 px</output>
+        <input type="range" id="idle" min="16" max="120" step="2" value="28" />
+      </div>
+
+      <label class="check">
+        <input type="checkbox" id="locked" />
+        <span class="box"></span>
+        <span class="txt">
+          锁定位置（鼠标穿透）
+          <em>锁定后点击会落到底层窗口，可在托盘菜单解锁</em>
+        </span>
+      </label>
+
+      <label class="check">
+        <input type="checkbox" id="alwaysOnTop" />
+        <span class="box"></span>
+        <span class="txt">
+          始终置顶
+          <em>关闭后会被其它窗口盖住</em>
+        </span>
+      </label>
+
+      <label class="check">
+        <input type="checkbox" id="autostart" />
+        <span class="box"></span>
+        <span class="txt">
+          开机自动启动
+          <em>写入当前用户启动项，可随时关闭</em>
+        </span>
+      </label>
+    </section>
+
+    <footer class="actions">
+      <button type="button" class="ghost" id="corner">回到右下角</button>
+      <button type="button" class="ghost" id="reset">恢复默认</button>
+      <button type="button" class="primary" id="close">完成</button>
+    </footer>
+
+    <p class="meta">
+      <span id="metaText">241 帧 · 连续插值 · Tauri 2</span>
+    </p>
+    <p class="meta"><span id="dbg"></span></p>
+  </main>
+  <script src="settings.js"></script>
+</body>
+</html>

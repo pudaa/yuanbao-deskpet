@@ -1,0 +1,145 @@
+html,
+body {
+  margin: 0;
+  padding: 0;
+  background: transparent;
+  overflow: hidden;
+  user-select: none;
+  cursor: default;
+}
+
+#stage {
+  width: 100vw;
+  height: 100vh;
+  position: relative;
+  overflow: hidden;
+  /* Tauri 下用 data-tauri-drag-region 拖动；锁定时窗口不接收鼠标事件，拖动自然失效 */
+}
+
+#cv {
+  position: absolute;
+  inset: 0;
+  display: block;
+  pointer-events: none;
+}
+
+body.mirror #cv {
+  transform: scaleX(-1);
+}
+
+#hint {
+  position: absolute;
+  left: 50%;
+  bottom: 10px;
+  transform: translateX(-50%);
+  font: 12px/1.4 "Microsoft YaHei", system-ui, sans-serif;
+  color: #2c2c2a;
+  background: rgba(255, 255, 255, 0.85);
+  border: 0.5px solid rgba(0, 0, 0, 0.16);
+  border-radius: 8px;
+  padding: 3px 9px;
+  white-space: nowrap;
+  opacity: 0;
+  transition: opacity 0.2s ease;
+  pointer-events: none;
+}
+
+#hint.show {
+  opacity: 1;
+}
+
+/* ---- 右键菜单 ---- */
+#ctx {
+  position: absolute;
+  display: none;
+  min-width: 112px;
+  padding: 4px;
+  background: rgba(255, 255, 255, 0.98);
+  border: 0.5px solid rgba(0, 0, 0, 0.14);
+  border-radius: 9px;
+  box-shadow: 0 6px 22px rgba(0, 0, 0, 0.13);
+  z-index: 20;
+  -webkit-app-region: no-drag;
+}
+
+#ctx.show {
+  display: block;
+}
+
+#ctx button {
+  display: block;
+  width: 100%;
+  text-align: left;
+  padding: 5px 10px;
+  border: 0;
+  background: transparent;
+  border-radius: 5px;
+  cursor: pointer;
+  color: #3c4655;
+  font: 12px/1.6 "Microsoft YaHei", system-ui, sans-serif;
+}
+
+#ctx button:hover {
+  background: #edf3f7;
+}
+
+#ctx hr {
+  border: 0;
+  border-top: 0.5px solid rgba(0, 0, 0, 0.09);
+  margin: 4px 3px;
+}
+
+/* 落地挤压：由 Rust 的 pet:landed 事件触发 */
+#stage {
+  transform-origin: 50% 100%;
+}
+
+body.land #stage {
+  animation: squash 0.22s cubic-bezier(0.3, 0.9, 0.4, 1);
+}
+
+@keyframes squash {
+  0% {
+    transform: scale(1.16, 0.84);
+  }
+  55% {
+    transform: scale(0.97, 1.03);
+  }
+  100% {
+    transform: none;
+  }
+}
+
+/* 按下即压住：像有只手把猫按下去，底部为轴；拖拽期间保持 */
+body.pressing #stage {
+  animation: squeeze 0.07s ease-out forwards;
+}
+
+@keyframes squeeze {
+  from {
+    transform: scale(1, 1);
+  }
+  to {
+    transform: scale(1.17, 0.76);
+  }
+}
+
+/* 松手回弹：从压扁态弹回，带一次轻微过冲 */
+body.bounce #stage {
+  animation: bounce 0.34s cubic-bezier(0.3, 0.9, 0.4, 1);
+}
+
+@keyframes bounce {
+  0% {
+    transform: scale(1.17, 0.76);
+  }
+  45% {
+    transform: scale(0.96, 1.06);
+  }
+  75% {
+    transform: scale(1.02, 0.99);
+  }
+  100% {
+    transform: none;
+  }
+}

@@ -1,0 +1,23 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<title>圆宝桌宠</title>
+<link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <div id="stage">
+    <canvas id="cv"></canvas>
+    <div id="hint">圆宝加载中…</div>
+
+    <div id="ctx" role="menu">
+      <button type="button" data-act="settings">设置…</button>
+      <button type="button" data-act="lock">锁定（穿透）</button>
+      <button type="button" data-act="corner">回到右下角</button>
+      <hr />
+      <button type="button" data-act="quit">退出圆宝</button>
+    </div>
+  </div>
+  <script src="renderer.js"></script>
+</body>
+</html>

@@ -59,19 +59,19 @@
 `wndproc` 只查表（`handle_menu_cmd`）。新增菜单项不需要改任何分发范围，
 从机制上消除了"新 ID 落在区间外被静默丢弃"的历史问题。
 
-## 5. 待办：Phase A 模块拆分的目标形态
+## 5. 模块拆分（Phase A，已完成）
 
 ```
 native/src/
-├── main.rs              入口 + 消息循环 + wndproc 薄分发
-├── app/{state,tick,cmd}.rs
-├── render/{present,frames,press}.rs
-├── input/{follow,hit}.rs
-├── audio/{mod,mci}.rs   已完成
-├── sys/{win,autostart}.rs
-├── ui/{menu,menu_ui,tray}.rs
+├── main.rs              入口 + 消息循环 + wndproc 分发（449 行）
+├── app/{state,tick,cmd}.rs      状态与几何 / 每帧驱动 / 命令与持久化
+├── render/{present,frames,press}.rs   分层窗口合成 / 资源与帧 / 按压曲线
+├── input/{follow,hit}.rs        角度跟随 / alpha 命中
+├── audio/{mod,mci}.rs           行为引擎 / MCI 封装
+├── sys/{win,autostart}.rs       屏幕与窗口 / 注册表自启
+├── ui/{menu,menu_ui,tray}.rs    菜单与命令表 / 自绘 / 托盘
 ├── settings.rs / config.rs / update.rs / physics.rs
 ```
 
-当前 `main.rs` 仍承载入口、窗口合成、帧加载、角度跟随、按压曲线、菜单、命令分发与自启。
-拆分是纯搬运，不改行为。
+拆分是纯搬运（脚本按顶层条目行区间切分，逻辑未改），`main.rs` 从 1718 行降到 449 行。
+每个模块只依赖 `crate` 内的同级模块，没有反向依赖。

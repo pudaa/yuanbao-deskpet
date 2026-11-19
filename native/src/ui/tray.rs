@@ -5,7 +5,7 @@ use windows::Win32::Foundation::*;
 use windows::Win32::System::LibraryLoader::GetModuleHandleW;
 use windows::Win32::UI::Shell::*;
 use windows::Win32::UI::WindowsAndMessaging::*;
-use crate::menu_ui::{self as mui, Kind};
+use crate::ui::menu_ui::{self as mui, Kind};
 
 pub const WM_TRAY: u32 = WM_APP + 1;
 

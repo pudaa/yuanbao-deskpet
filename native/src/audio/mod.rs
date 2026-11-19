@@ -383,7 +383,7 @@ fn materialize(res: &SoundRes) -> Option<std::path::PathBuf> {
     let dir = std::env::temp_dir().join("yuanbao-deskpet-sounds");
     std::fs::create_dir_all(&dir).ok()?;
     let path = dir.join(format!("{}.wav", res.key));
-    let bytes = unsafe { crate::resource(res.id) }?;
+    let bytes = unsafe { crate::render::frames::resource(res.id) }?;
     let stale = std::fs::metadata(&path)
         .map(|m| m.len() as usize != bytes.len())
         .unwrap_or(true);

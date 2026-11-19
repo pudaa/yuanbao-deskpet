@@ -1113,6 +1113,48 @@ Rust 侧不再出现 `FRAME_COUNT`、`PAD`、`FOCUS_Y`、`[160,220,280,340]`、`
 
 **遗留**：Phase A 模块拆分（main.rs 仍 1600+ 行）尚未执行，目标形态见 `docs/ARCHITECTURE.md` 第 5 节。
 
+### 4.47 模块拆分（Phase A）+ 呼噜素材接入
+
+**呼噜音频**：`圆宝呼噜.mp3`（5.83s / 48kHz / 320kbps，无静音段，均值 −28.7 dB、峰值 −6.6 dB）。
+直接循环会有接缝咔哒，处理成**自交叉淡化**：取首 250ms 与尾 250ms 用 `acrossfade` 混合，再接中段，
+输出 5.58s——末帧与首帧内容相同，循环点天然对齐。整体 +4dB 后峰值 −2.6 dBFS，不削顶。
+产物 `web/sounds/purr_loop.wav`（48kHz 立体声 16bit，1,071,438 B）。原始 mp3 归档在 `archive/sounds/`。
+
+`sounds.json` 里圆宝组的第二条行为（`press` + `delayMs: 600` + `loop until release`）原本指向这个缺失的 key，
+现在自动生效，未改一行代码。
+
+**模块拆分**：把 `main.rs` 按顶层条目（fn/struct/enum/impl/static/const）切成 7 组。
+做法是**按行区间原样搬运**，不重写逻辑：
+
+| 目录 | 内容 |
+|---|---|
+| `app/` | `state`（State/几何/帧缓存）、`tick`（on_tick）、`cmd`（apply_cmd/save_config） |
+| `render/` | `present`（分层窗口合成）、`frames`（资源/解码/缩放）、`press`（按压曲线） |
+| `input/` | `follow`（角度跟随/idle 收势）、`hit`（alpha 命中） |
+| `audio/` | `mod`（行为引擎）、`mci`（MCI 封装） |
+| `sys/` | `win`（屏幕/锁定/置角）、`autostart`（注册表） |
+| `ui/` | `menu`（菜单与命令表）、`menu_ui`（自绘）、`tray`（托盘） |
+
+`main.rs` **1718 → 449 行**，只剩入口、消息循环、wndproc、定时器与几个全局量。
+
+**踩坑**：第一版脚本用大括号配对找条目边界，被 Rust 词法（`'static` 生命周期被当成字符字面量）
+带偏，只识别出 29 个条目。改成"只收集顶层声明行、用下一个声明行作为边界"后稳定（58 个条目）。
+另一个坑是文档注释 `///` 属于**下一个**条目，边界取错会把注释留在上一个文件末尾，触发
+`expected item after doc comment`。
+
+**验证**：
+
+| 项 | 结果 |
+|---|---|
+| `cargo build --release` | 通过，0 warning |
+| `cargo test` | 6 passed |
+| 短按 150ms | 只释放 `meow_press.wav` |
+| 长按 1000ms | 600ms 后释放并播放 `purr_loop.wav` |
+| 菜单 | 档位/音效组仍由配置生成，切换落盘正常 |
+
+> 模块 prelude 目前带 `#![allow(unused_imports)]`：拆分是机械搬运，先保证行为不变，
+> 未使用的导入留给后续按模块收敛。
+
 ---
 
 ## 5. 高 DPI 适配

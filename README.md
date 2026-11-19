@@ -29,14 +29,16 @@ yuanbao-deskpet/
 │   ├── build.rs          生成 PE .res：图标 + 361 帧 + 3 个 wav + 版本信息
 │   ├── Cargo.toml
 │   └── src/
-│       ├── main.rs       WS_EX_LAYERED + UpdateLayeredWindow、物理、资源加载
+│       ├── main.rs       入口、消息循环、wndproc 分发（~450 行）
+│       ├── app/          state（状态/几何/帧缓存）、tick（每帧驱动）、cmd（命令与持久化）
+│       ├── render/       present（分层窗口合成）、frames（资源/解码/缩放）、press（按压曲线）
+│       ├── input/        follow（角度跟随 + idle 收势）、hit（alpha 命中）
+│       ├── audio/        mod（行为引擎：触发 × 播放 × 条件）、mci（MCI 封装）
+│       ├── ui/           menu（菜单与命令表）、menu_ui（owner-draw 绘制）、tray（托盘）
+│       ├── sys/          win（屏幕/锁定/置角）、autostart（注册表）
 │       ├── settings.rs   内置配置解析（assets/settings.json）
 │       ├── config.rs     用户配置持久化（%APPDATA%\YuanBaoDeskPet\config.json）
-│       ├── audio/mod.rs  音效行为引擎（触发 × 播放 × 条件）
-│       ├── audio/mci.rs  MCI 封装
-│       ├── menu_ui.rs    owner-draw 自绘菜单（日系清新）
 │       ├── physics.rs    甩出物理
-│       ├── tray.rs       托盘
 │       └── update.rs     GitHub Releases 自更新
 ├── legacy/
 │   └── webview/          WebView 对照版（半搁置，见 VALIDATION 4.14 起的迁移记录）
@@ -50,7 +52,7 @@ yuanbao-deskpet/
 │   ├── settings/         设置面板
 │   ├── bubble/           气泡页（当前未启用，留给后续碎碎念）
 │   ├── frames/           361 帧 WebP（0000–0360）
-│   └── sounds/           抚摸音效 pat_down / pat_up
+│   └── sounds/           音效：meow_press / duck_press / duck_release / purr_loop
 ├── assets/               图标、frames.json（角度锚点表）、settings.json（档位/几何）、sounds.json（音效行为）
 ├── docs/
 │   ├── ARCHITECTURE.md   数据流、音效引擎、配置分层
